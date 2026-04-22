@@ -1,6 +1,6 @@
 import unittest
 
-from bot.handlers import build_redirect_url, build_track_result, render_message
+from bot.handlers import TRACK_EMOJI_HTML, build_redirect_url, build_track_result, render_message
 from bot.models import TrackLink, TrackMetadata
 
 
@@ -50,7 +50,7 @@ class HandlerTests(unittest.TestCase):
 
         message = render_message(link, metadata)
 
-        self.assertEqual(message, "🎵 <b>Miss Me</b>\nBerner • 04:32")
+        self.assertEqual(message, f"{TRACK_EMOJI_HTML} <b>Miss Me</b>\nBerner • 04:32")
 
     def test_render_message_does_not_escape_apostrophe_into_numeric_entity(self) -> None:
         link = TrackLink(
@@ -63,7 +63,7 @@ class HandlerTests(unittest.TestCase):
 
         message = render_message(link, metadata)
 
-        self.assertEqual(message, "🎵 <b>'Bout It</b>\nJMSN • 06:34")
+        self.assertEqual(message, f"{TRACK_EMOJI_HTML} <b>'Bout It</b>\nJMSN • 06:34")
         self.assertNotIn("&#x27;", message)
 
     def test_build_redirect_url(self) -> None:

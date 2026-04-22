@@ -19,6 +19,8 @@ from .models import TrackLink, TrackMetadata
 from .yandex_links import LinkParseError, parse_track_link
 from .yandex_metadata import TrackMetadataClient
 
+TRACK_EMOJI_HTML = '<tg-emoji emoji-id="5472189253121241024"></tg-emoji>'
+
 
 def create_router(
     metadata_client: TrackMetadataClient,
@@ -85,7 +87,7 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
         description="Поддерживаются web и yandexmusic:// ссылки на трек",
         input_message_content=InputTextMessageContent(
             message_text=(
-                "🎵 <b>ТРЕК</b>\n"
+                f"{TRACK_EMOJI_HTML} <b>ТРЕК</b>\n"
                 "Вставь ссылку вида <code>https://music.yandex.ru/album/123/track/456</code>\n\n"
                 f"<code>{escape_html_text(error_code)}</code>"
             ),
@@ -97,7 +99,7 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
 
 def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
     title = escape_html_text(metadata.title or "ТРЕК")
-    lines = [f"🎵 <b>{title}</b>"]
+    lines = [f"{TRACK_EMOJI_HTML} <b>{title}</b>"]
 
     meta_parts = [escape_html_text(part) for part in (metadata.artist, metadata.duration) if part]
     if meta_parts:
