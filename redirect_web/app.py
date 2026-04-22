@@ -39,7 +39,6 @@ def render_redirect_page(*, app_url: str, web_url: str) -> str:
     escaped_app_url = escape(app_url)
     escaped_web_url = escape(web_url)
     app_url_json = json.dumps(app_url)
-    web_url_json = json.dumps(web_url)
 
     return f"""<!doctype html>
 <html lang="ru">
@@ -130,7 +129,7 @@ def render_redirect_page(*, app_url: str, web_url: str) -> str:
   <body>
     <main class="card">
       <h1>Открываем Яндекс Музыку</h1>
-      <p>Если приложение не откроется автоматически, нажми кнопку ниже или переходи в веб-версию.</p>
+      <p>Пробуем открыть трек в приложении. Если не сработало, нажми кнопку ещё раз или открой веб-версию вручную.</p>
       <div class="actions">
         <a class="button button-primary" href="{escaped_app_url}">ОТКРЫТЬ В ПРИЛОЖЕНИИ</a>
         <a class="button button-secondary" href="{escaped_web_url}">ОТКРЫТЬ В ВЕБ</a>
@@ -139,14 +138,7 @@ def render_redirect_page(*, app_url: str, web_url: str) -> str:
     </main>
     <script>
       const appUrl = {app_url_json};
-      const webUrl = {web_url_json};
-
-      window.location.replace(appUrl);
-      window.setTimeout(() => {{
-        if (!document.hidden) {{
-          window.location.replace(webUrl);
-        }}
-      }}, 1200);
+      window.location.href = appUrl;
     </script>
   </body>
 </html>

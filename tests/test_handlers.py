@@ -52,6 +52,20 @@ class HandlerTests(unittest.TestCase):
 
         self.assertEqual(message, "🎵 <b>Miss Me</b>\nBerner • 04:32")
 
+    def test_render_message_does_not_escape_apostrophe_into_numeric_entity(self) -> None:
+        link = TrackLink(
+            album_id="2448178",
+            track_id="21404459",
+            web_url="https://music.yandex.ru/album/2448178/track/21404459",
+            app_url="yandexmusic://album/2448178/track/21404459",
+        )
+        metadata = TrackMetadata(title="'Bout It", artist="JMSN", duration="06:34")
+
+        message = render_message(link, metadata)
+
+        self.assertEqual(message, "🎵 <b>'Bout It</b>\nJMSN • 06:34")
+        self.assertNotIn("&#x27;", message)
+
     def test_build_redirect_url(self) -> None:
         link = TrackLink(
             album_id="5717491",

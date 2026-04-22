@@ -87,7 +87,7 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
             message_text=(
                 "🎵 <b>ТРЕК</b>\n"
                 "Вставь ссылку вида <code>https://music.yandex.ru/album/123/track/456</code>\n\n"
-                f"<code>{escape(error_code)}</code>"
+                f"<code>{escape_html_text(error_code)}</code>"
             ),
             parse_mode="HTML",
             disable_web_page_preview=True,
@@ -96,16 +96,16 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
 
 
 def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
-    title = escape(metadata.title or "ТРЕК")
+    title = escape_html_text(metadata.title or "ТРЕК")
     lines = [f"🎵 <b>{title}</b>"]
 
-    meta_parts = [escape(part) for part in (metadata.artist, metadata.duration) if part]
+    meta_parts = [escape_html_text(part) for part in (metadata.artist, metadata.duration) if part]
     if meta_parts:
         lines.append(" • ".join(meta_parts))
 
     if metadata.error_code:
         lines.append("")
-        lines.append(f"<code>{escape(metadata.error_code)}</code>")
+        lines.append(f"<code>{escape_html_text(metadata.error_code)}</code>")
 
     return "\n".join(lines)
 
@@ -146,3 +146,7 @@ def build_redirect_url(link: TrackLink, *, app_redirect_base_url: str | None = N
 
     base_url = app_redirect_base_url.rstrip("/")
     return f"{base_url}/open?{urlencode({'app': link.app_url})}"
+
+
+def escape_html_text(value: str) -> str:
+    return escape(value, quote=False)

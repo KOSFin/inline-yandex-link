@@ -44,7 +44,8 @@ class RedirectWebTests(unittest.TestCase):
 
         self.assertIn("ОТКРЫТЬ В ПРИЛОЖЕНИИ", html)
         self.assertIn("ОТКРЫТЬ В ВЕБ", html)
-        self.assertIn("window.location.replace(appUrl);", html)
+        self.assertIn("window.location.href = appUrl;", html)
+        self.assertNotIn("window.location.replace(webUrl);", html)
 
 
 if __name__ == "__main__":
