@@ -15,6 +15,7 @@ USER_AGENT = (
     "Chrome/135.0.0.0 Safari/537.36"
 )
 
+STATE_SNAPSHOT_MARKER = "(window.__STATE_SNAPSHOT__ = window.__STATE_SNAPSHOT__ || []).push("
 META_TAG_RE = re.compile(r"<meta\s+([^>]+?)>", re.IGNORECASE)
 ATTR_RE = re.compile(r'([a-zA-Z:_-]+)\s*=\s*("([^"]*)"|\'([^\']*)\')')
 JSON_LD_RE = re.compile(
@@ -23,6 +24,12 @@ JSON_LD_RE = re.compile(
 )
 VISIBLE_WHITESPACE_RE = re.compile(r"\s+")
 TRACK_DURATION_RE = re.compile(r"Длительность дорожки\s+(\d{1,2}:\d{2})", re.IGNORECASE)
+CAPTCHA_MARKERS = (
+    "Подтвердите, что запросы отправляли вы, а не робот",
+    "Вы не робот?",
+    "/checkcaptcha",
+    "smartcaptcha",
+)
 
 
 @dataclass
@@ -91,6 +98,13 @@ class TrackMetadataClient:
 
 
 def extract_track_metadata(html: str, link: TrackLink) -> TrackMetadata:
+    if is_captcha_page(html):
+        return TrackMetadata(title="ТРЕК", error_code="captcha_required")
+
+    state_snapshot_metadata = extract_track_metadata_from_state_snapshot(html, link)
+    if state_snapshot_metadata is not None:
+        return state_snapshot_metadata
+
     title = extract_meta_content(html, prop="og:title")
     artist = extract_artist(html)
     duration = extract_duration(html, link)
@@ -104,6 +118,114 @@ def extract_track_metadata(html: str, link: TrackLink) -> TrackMetadata:
         duration=duration or None,
         error_code=None,
     )
+
+
+def is_captcha_page(html: str) -> bool:
+    return any(marker in html for marker in CAPTCHA_MARKERS)
+
+
+def extract_track_metadata_from_state_snapshot(html: str, link: TrackLink) -> TrackMetadata | None:
+    state_snapshot = extract_state_snapshot(html)
+    if not isinstance(state_snapshot, dict):
+        return None
+
+    track_state = state_snapshot.get("track")
+    if not isinstance(track_state, dict):
+        return None
+
+    raw_meta = track_state.get("meta")
+    if not isinstance(raw_meta, dict):
+        return None
+
+    track_id = str(raw_meta.get("id") or raw_meta.get("realId") or "")
+    if track_id != link.track_id:
+        return None
+
+    raw_album_id = raw_meta.get("albumId")
+    if raw_album_id is not None and str(raw_album_id) != link.album_id:
+        return None
+
+    title = normalize_visible_text(raw_meta.get("title"))
+    artist = extract_artist_names_from_state_track(raw_meta.get("artists"))
+    duration = format_duration_ms(raw_meta.get("durationMs"))
+
+    if not title and not artist and not duration:
+        return None
+
+    return TrackMetadata(
+        title=title or "ТРЕК",
+        artist=artist or None,
+        duration=duration or None,
+        error_code=None,
+    )
+
+
+def extract_state_snapshot(html: str) -> dict[str, object] | None:
+    payload = extract_json_object_after_marker(html, STATE_SNAPSHOT_MARKER)
+    if not payload:
+        return None
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+
+    return parsed if isinstance(parsed, dict) else None
+
+
+def extract_json_object_after_marker(html: str, marker: str) -> str | None:
+    marker_start = html.find(marker)
+    if marker_start == -1:
+        return None
+
+    object_start = html.find("{", marker_start)
+    if object_start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    is_escaped = False
+
+    for index in range(object_start, len(html)):
+        char = html[index]
+
+        if in_string:
+            if is_escaped:
+                is_escaped = False
+            elif char == "\\":
+                is_escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return html[object_start : index + 1]
+
+    return None
+
+
+def extract_artist_names_from_state_track(raw_artists: object) -> str | None:
+    if not isinstance(raw_artists, list):
+        return None
+
+    artist_names = []
+    for raw_artist in raw_artists:
+        if not isinstance(raw_artist, dict):
+            continue
+        name = normalize_visible_text(raw_artist.get("name"))
+        if name:
+            artist_names.append(name)
+
+    if not artist_names:
+        return None
+
+    return ", ".join(artist_names)
 
 
 def extract_meta_content(html: str, *, name: str | None = None, prop: str | None = None) -> str | None:
@@ -201,6 +323,19 @@ def parse_iso_duration(value: str | None) -> str | None:
     display_minutes, display_seconds = divmod(total_seconds, 60)
     if hours:
         return f"{hours}:{display_minutes % 60:02d}:{display_seconds:02d}"
+    return f"{display_minutes:02d}:{display_seconds:02d}"
+
+
+def format_duration_ms(value: object) -> str | None:
+    try:
+        total_seconds = max(int(value), 0) // 1000
+    except (TypeError, ValueError):
+        return None
+
+    display_minutes, display_seconds = divmod(total_seconds, 60)
+    display_hours, display_minutes = divmod(display_minutes, 60)
+    if display_hours:
+        return f"{display_hours}:{display_minutes:02d}:{display_seconds:02d}"
     return f"{display_minutes:02d}:{display_seconds:02d}"
 
 

@@ -5,7 +5,10 @@ from html import escape
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import (
+    CopyTextButton,
     InlineQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
     Message,
@@ -61,6 +64,7 @@ def build_track_result(link: TrackLink, metadata: TrackMetadata) -> InlineQueryR
             parse_mode="HTML",
             disable_web_page_preview=True,
         ),
+        reply_markup=build_track_reply_markup(link),
     )
 
 
@@ -89,13 +93,22 @@ def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
     if meta_parts:
         lines.append(" • ".join(meta_parts))
 
-    lines.append("")
-    lines.append(f'<a href="{escape(link.web_url)}">ОТКРЫТЬ В ВЕБ</a>')
-    lines.append(f'<a href="{escape(link.app_url)}">ОТКРЫТЬ В ПРИЛОЖЕНИИ</a>')
-
     if metadata.error_code:
         lines.append("")
         lines.append(f"<code>{escape(metadata.error_code)}</code>")
 
     return "\n".join(lines)
 
+
+def build_track_reply_markup(link: TrackLink) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="ОТКРЫТЬ В ВЕБ", url=link.web_url)],
+            [
+                InlineKeyboardButton(
+                    text="СКОПИРОВАТЬ APP-ССЫЛКУ",
+                    copy_text=CopyTextButton(text=link.app_url),
+                )
+            ],
+        ]
+    )
