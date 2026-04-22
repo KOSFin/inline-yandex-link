@@ -8,8 +8,27 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from .config import Settings
-from .handlers import create_router
+from .handlers import TRACK_CUSTOM_EMOJI_ID, TRACK_EMOJI, configure_track_custom_emoji, create_router
 from .yandex_metadata import TrackMetadataClient
+
+
+async def resolve_track_custom_emoji(bot: Bot) -> str:
+    try:
+        stickers = await bot.get_custom_emoji_stickers(custom_emoji_ids=[TRACK_CUSTOM_EMOJI_ID])
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Failed to resolve custom emoji %s, falling back to %s",
+            TRACK_CUSTOM_EMOJI_ID,
+            TRACK_EMOJI,
+            exc_info=True,
+        )
+        return TRACK_EMOJI
+
+    if not stickers:
+        return TRACK_EMOJI
+
+    emoji = (stickers[0].emoji or "").strip()
+    return emoji or TRACK_EMOJI
 
 
 async def main() -> None:
@@ -26,6 +45,7 @@ async def main() -> None:
         session=bot_session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    configure_track_custom_emoji(emoji=await resolve_track_custom_emoji(bot))
     timeout = ClientTimeout(total=settings.request_timeout_seconds)
 
     async with ClientSession(timeout=timeout) as http_session:

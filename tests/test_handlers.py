@@ -1,6 +1,6 @@
 import unittest
 
-from bot.handlers import TRACK_EMOJI_HTML, build_redirect_url, build_track_result, render_message
+from bot.handlers import TRACK_CUSTOM_EMOJI_ID, TRACK_EMOJI, build_redirect_url, build_track_result, render_message
 from bot.models import TrackLink, TrackMetadata
 
 
@@ -18,6 +18,9 @@ class HandlerTests(unittest.TestCase):
 
         self.assertIsNotNone(result.reply_markup)
         self.assertEqual(result.reply_markup.inline_keyboard[0][0].url, link.web_url)
+        self.assertEqual(result.input_message_content.message_text, "🎵 Miss Me\nBerner, Wiz Khalifa, Styles P • 04:32")
+        self.assertEqual(result.input_message_content.entities[0].type, "custom_emoji")
+        self.assertEqual(result.input_message_content.entities[0].custom_emoji_id, TRACK_CUSTOM_EMOJI_ID)
         self.assertEqual(
             result.reply_markup.inline_keyboard[1][0].url,
             "https://music-links.example.com/open?app=yandexmusic%3A%2F%2Falbum%2F5717491%2Ftrack%2F43050400",
@@ -50,7 +53,7 @@ class HandlerTests(unittest.TestCase):
 
         message = render_message(link, metadata)
 
-        self.assertEqual(message, f"{TRACK_EMOJI_HTML} <b>Miss Me</b>\nBerner • 04:32")
+        self.assertEqual(message, f"{TRACK_EMOJI} Miss Me\nBerner • 04:32")
 
     def test_render_message_does_not_escape_apostrophe_into_numeric_entity(self) -> None:
         link = TrackLink(
@@ -63,7 +66,7 @@ class HandlerTests(unittest.TestCase):
 
         message = render_message(link, metadata)
 
-        self.assertEqual(message, f"{TRACK_EMOJI_HTML} <b>'Bout It</b>\nJMSN • 06:34")
+        self.assertEqual(message, f"{TRACK_EMOJI} 'Bout It\nJMSN • 06:34")
         self.assertNotIn("&#x27;", message)
 
     def test_build_redirect_url(self) -> None:

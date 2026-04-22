@@ -12,6 +12,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    MessageEntity,
     Message,
 )
 
@@ -19,7 +20,16 @@ from .models import TrackLink, TrackMetadata
 from .yandex_links import LinkParseError, parse_track_link
 from .yandex_metadata import TrackMetadataClient
 
-TRACK_EMOJI_HTML = '<tg-emoji emoji-id="5472189253121241024">🎵</tg-emoji>'
+TRACK_EMOJI = "🎵"
+TRACK_CUSTOM_EMOJI_ID = "5472189253121241024"
+TRACK_EMOJI_HTML = f'<tg-emoji emoji-id="{TRACK_CUSTOM_EMOJI_ID}">{TRACK_EMOJI}</tg-emoji>'
+
+
+def configure_track_custom_emoji(*, emoji_id: str = TRACK_CUSTOM_EMOJI_ID, emoji: str = TRACK_EMOJI) -> None:
+    global TRACK_CUSTOM_EMOJI_ID, TRACK_EMOJI, TRACK_EMOJI_HTML
+    TRACK_CUSTOM_EMOJI_ID = emoji_id
+    TRACK_EMOJI = emoji
+    TRACK_EMOJI_HTML = f'<tg-emoji emoji-id="{TRACK_CUSTOM_EMOJI_ID}">{TRACK_EMOJI}</tg-emoji>'
 
 
 def create_router(
@@ -71,11 +81,7 @@ def build_track_result(
         id=link.cache_key,
         title=title,
         description=description,
-        input_message_content=InputTextMessageContent(
-            message_text=render_message(link, metadata),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        ),
+        input_message_content=build_track_message_content(link, metadata),
         reply_markup=build_track_reply_markup(link, app_redirect_base_url=app_redirect_base_url),
     )
 
@@ -98,18 +104,60 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
 
 
 def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
-    title = escape_html_text(metadata.title or "ТРЕК")
-    lines = [f"{TRACK_EMOJI_HTML} <b>{title}</b>"]
+    title = metadata.title or "ТРЕК"
+    lines = [f"{TRACK_EMOJI} {title}"]
 
-    meta_parts = [escape_html_text(part) for part in (metadata.artist, metadata.duration) if part]
+    meta_parts = [part for part in (metadata.artist, metadata.duration) if part]
     if meta_parts:
         lines.append(" • ".join(meta_parts))
 
     if metadata.error_code:
         lines.append("")
-        lines.append(f"<code>{escape_html_text(metadata.error_code)}</code>")
+        lines.append(metadata.error_code)
 
     return "\n".join(lines)
+
+
+def build_track_message_content(link: TrackLink, metadata: TrackMetadata) -> InputTextMessageContent:
+    message_text = render_message(link, metadata)
+    return InputTextMessageContent(
+        message_text=message_text,
+        entities=build_track_message_entities(metadata),
+        disable_web_page_preview=True,
+    )
+
+
+def build_track_message_entities(metadata: TrackMetadata) -> list[MessageEntity]:
+    title = metadata.title or "ТРЕК"
+    entities = [
+        MessageEntity(
+            type="custom_emoji",
+            offset=0,
+            length=utf16_length(TRACK_EMOJI),
+            custom_emoji_id=TRACK_CUSTOM_EMOJI_ID,
+        ),
+        MessageEntity(
+            type="bold",
+            offset=utf16_length(f"{TRACK_EMOJI} "),
+            length=utf16_length(title),
+        ),
+    ]
+
+    if metadata.error_code:
+        prefix = f"{TRACK_EMOJI} {title}"
+        meta_parts = [part for part in (metadata.artist, metadata.duration) if part]
+        if meta_parts:
+            prefix = f"{prefix}\n{' • '.join(meta_parts)}"
+        prefix = f"{prefix}\n\n"
+        entities.append(
+            MessageEntity(
+                type="code",
+                offset=utf16_length(prefix),
+                length=utf16_length(metadata.error_code),
+            )
+        )
+
+    return entities
 
 
 def build_track_reply_markup(
@@ -152,3 +200,7 @@ def build_redirect_url(link: TrackLink, *, app_redirect_base_url: str | None = N
 
 def escape_html_text(value: str) -> str:
     return escape(value, quote=False)
+
+
+def utf16_length(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
