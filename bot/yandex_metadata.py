@@ -4,6 +4,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from html import unescape
 
 from aiohttp import ClientError, ClientSession
 
@@ -343,4 +344,4 @@ def format_duration_ms(value: object) -> str | None:
 def normalize_visible_text(value: str | None) -> str:
     if not value:
         return ""
-    return VISIBLE_WHITESPACE_RE.sub(" ", value).strip()
+    return VISIBLE_WHITESPACE_RE.sub(" ", unescape(value)).strip()

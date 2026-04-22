@@ -7,7 +7,7 @@ SAMPLE_HTML = """
 <!DOCTYPE html>
 <html lang="ru-RU">
   <head>
-    <meta property="og:title" content="'Bout It" />
+    <meta property="og:title" content="&#x27;Bout It" />
     <meta property="og:description" content="JMSN • Трек • 2014" />
     <meta name="description" content="Слушать трек JMSN 'Bout It онлайн. Длительность дорожки 06:34, год выхода 2014." />
     <script type="application/ld+json">
@@ -79,6 +79,19 @@ class TrackMetadataTests(unittest.TestCase):
         self.assertEqual(metadata.artist, "JMSN")
         self.assertEqual(metadata.duration, "06:34")
         self.assertIsNone(metadata.error_code)
+
+    def test_extract_track_metadata_decodes_html_entities_in_title(self) -> None:
+        link = TrackLink(
+            album_id="2448178",
+            track_id="21404459",
+            web_url="https://music.yandex.ru/album/2448178/track/21404459",
+            app_url="yandexmusic://album/2448178/track/21404459",
+        )
+
+        metadata = extract_track_metadata(SAMPLE_HTML, link)
+
+        self.assertEqual(metadata.title, "'Bout It")
+        self.assertNotIn("&#x27;", metadata.title)
 
     def test_extract_track_metadata_from_state_snapshot(self) -> None:
         link = TrackLink(
