@@ -80,7 +80,8 @@ class TrackMetadataClient:
         except TimeoutError:
             metadata = TrackMetadata(title="ТРЕК", error_code="timeout")
 
-        self._save_to_cache(link.cache_key, metadata, now)
+        if metadata.error_code is None:
+            self._save_to_cache(link.cache_key, metadata, now)
         return metadata
 
     def _save_to_cache(self, key: str, metadata: TrackMetadata, now: float) -> None:

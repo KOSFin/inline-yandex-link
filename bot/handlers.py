@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import urlencode
 
 from aiogram import Router
 from aiogram.filters import CommandStart
@@ -19,7 +20,11 @@ from .yandex_links import LinkParseError, parse_track_link
 from .yandex_metadata import TrackMetadataClient
 
 
-def create_router(metadata_client: TrackMetadataClient) -> Router:
+def create_router(
+    metadata_client: TrackMetadataClient,
+    *,
+    app_redirect_base_url: str | None = None,
+) -> Router:
     router = Router()
 
     @router.message(CommandStart())
@@ -39,7 +44,7 @@ def create_router(metadata_client: TrackMetadataClient) -> Router:
             results = [build_error_result(str(error))]
         else:
             metadata = await metadata_client.fetch(link)
-            results = [build_track_result(link, metadata)]
+            results = [build_track_result(link, metadata, app_redirect_base_url=app_redirect_base_url)]
 
         await inline_query.answer(
             results=results,
@@ -50,7 +55,12 @@ def create_router(metadata_client: TrackMetadataClient) -> Router:
     return router
 
 
-def build_track_result(link: TrackLink, metadata: TrackMetadata) -> InlineQueryResultArticle:
+def build_track_result(
+    link: TrackLink,
+    metadata: TrackMetadata,
+    *,
+    app_redirect_base_url: str | None = None,
+) -> InlineQueryResultArticle:
     title = metadata.title or "ТРЕК"
     description_parts = [part for part in (metadata.artist, metadata.duration) if part]
     description = " • ".join(description_parts) or "Преобразовать ссылку Яндекс Музыки"
@@ -64,7 +74,7 @@ def build_track_result(link: TrackLink, metadata: TrackMetadata) -> InlineQueryR
             parse_mode="HTML",
             disable_web_page_preview=True,
         ),
-        reply_markup=build_track_reply_markup(link),
+        reply_markup=build_track_reply_markup(link, app_redirect_base_url=app_redirect_base_url),
     )
 
 
@@ -100,15 +110,39 @@ def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
     return "\n".join(lines)
 
 
-def build_track_reply_markup(link: TrackLink) -> InlineKeyboardMarkup:
+def build_track_reply_markup(
+    link: TrackLink,
+    *,
+    app_redirect_base_url: str | None = None,
+) -> InlineKeyboardMarkup:
+    app_button = build_app_link_button(link, app_redirect_base_url=app_redirect_base_url)
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="ОТКРЫТЬ В ВЕБ", url=link.web_url)],
-            [
-                InlineKeyboardButton(
-                    text="СКОПИРОВАТЬ APP-ССЫЛКУ",
-                    copy_text=CopyTextButton(text=link.app_url),
-                )
-            ],
+            [app_button],
         ]
     )
+
+
+def build_app_link_button(
+    link: TrackLink,
+    *,
+    app_redirect_base_url: str | None = None,
+) -> InlineKeyboardButton:
+    redirect_url = build_redirect_url(link, app_redirect_base_url=app_redirect_base_url)
+    if redirect_url:
+        return InlineKeyboardButton(text="ОТКРЫТЬ В ПРИЛОЖЕНИИ", url=redirect_url)
+
+    return InlineKeyboardButton(
+        text="СКОПИРОВАТЬ APP-ССЫЛКУ",
+        copy_text=CopyTextButton(text=link.app_url),
+    )
+
+
+def build_redirect_url(link: TrackLink, *, app_redirect_base_url: str | None = None) -> str | None:
+    if not app_redirect_base_url:
+        return None
+
+    base_url = app_redirect_base_url.rstrip("/")
+    return f"{base_url}/open?{urlencode({'app': link.app_url})}"

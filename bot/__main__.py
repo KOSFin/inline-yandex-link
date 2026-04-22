@@ -20,7 +20,7 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    bot_session = AiohttpSession(proxy=settings.http_proxy) if settings.http_proxy else AiohttpSession()
+    bot_session = AiohttpSession(proxy=settings.telegram_proxy) if settings.telegram_proxy else AiohttpSession()
     bot = Bot(
         token=settings.bot_token,
         session=bot_session,
@@ -31,13 +31,18 @@ async def main() -> None:
     async with ClientSession(timeout=timeout) as http_session:
         metadata_client = TrackMetadataClient(
             session=http_session,
-            proxy_url=settings.http_proxy,
+            proxy_url=settings.metadata_proxy,
             cache_ttl_seconds=settings.cache_ttl_seconds,
             cache_size=settings.cache_size,
         )
 
         dispatcher = Dispatcher()
-        dispatcher.include_router(create_router(metadata_client))
+        dispatcher.include_router(
+            create_router(
+                metadata_client,
+                app_redirect_base_url=settings.app_redirect_base_url,
+            )
+        )
 
         try:
             await bot.delete_webhook(drop_pending_updates=True)
@@ -48,4 +53,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

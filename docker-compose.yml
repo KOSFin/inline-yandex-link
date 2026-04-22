@@ -7,5 +7,20 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
     env_file:
       - .env
+    command: ["python", "-m", "bot"]
+    depends_on:
+      - web
     restart: unless-stopped
 
+  web:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+    env_file:
+      - .env
+    command: ["python", "-m", "redirect_web"]
+    ports:
+      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
+    restart: unless-stopped

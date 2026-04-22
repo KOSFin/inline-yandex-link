@@ -14,6 +14,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot ./bot
+COPY redirect_web ./redirect_web
 
 CMD ["python", "-m", "bot"]
-
