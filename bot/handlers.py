@@ -19,7 +19,7 @@ from .models import TrackLink, TrackMetadata
 from .yandex_links import LinkParseError, parse_track_link
 from .yandex_metadata import TrackMetadataClient
 
-TRACK_EMOJI_HTML = '<tg-emoji emoji-id="5472189253121241024"></tg-emoji>'
+TRACK_EMOJI_HTML = '<tg-emoji emoji-id="5472189253121241024">🎵</tg-emoji>'
 
 
 def create_router(
