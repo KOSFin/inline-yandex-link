@@ -5,7 +5,7 @@ from html import escape
 
 from aiohttp import web
 
-from bot.yandex_links import LinkParseError, parse_track_link
+from bot.yandex_links import LinkParseError, parse_yandex_link
 
 
 def create_app() -> web.Application:
@@ -25,7 +25,7 @@ async def open_handler(request: web.Request) -> web.Response:
         return web.Response(status=400, text="Missing app query parameter", content_type="text/plain")
 
     try:
-        link = parse_track_link(raw_app_url)
+        link = parse_yandex_link(raw_app_url)
     except LinkParseError:
         return web.Response(status=400, text="Unsupported app link", content_type="text/plain")
 
@@ -129,7 +129,7 @@ def render_redirect_page(*, app_url: str, web_url: str) -> str:
   <body>
     <main class="card">
       <h1>Открываем Яндекс Музыку</h1>
-      <p>Пробуем открыть трек в приложении. Если не сработало, нажми кнопку ещё раз или открой веб-версию вручную.</p>
+      <p>Пробуем открыть ссылку в приложении. Если не сработало, нажми кнопку ещё раз или открой веб-версию вручную.</p>
       <div class="actions">
         <a class="button button-primary" href="{escaped_app_url}">ОТКРЫТЬ В ПРИЛОЖЕНИИ</a>
         <a class="button button-secondary" href="{escaped_web_url}">ОТКРЫТЬ В ВЕБ</a>

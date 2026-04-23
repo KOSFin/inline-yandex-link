@@ -20,6 +20,19 @@ class RedirectWebTests(unittest.TestCase):
         self.assertIn("yandexmusic://album/5717491/track/43050400", body)
         self.assertIn("https://music.yandex.ru/album/5717491/track/43050400", body)
 
+    def test_open_handler_supports_artist_link(self) -> None:
+        request = make_mocked_request(
+            "GET",
+            "/open?app=yandexmusic://artist/23558757",
+        )
+
+        response = asyncio.run(open_handler(request))
+
+        self.assertEqual(response.status, 200)
+        body = response.text
+        self.assertIn("yandexmusic://artist/23558757", body)
+        self.assertIn("https://music.yandex.ru/artist/23558757", body)
+
     def test_open_handler_rejects_invalid_link(self) -> None:
         request = make_mocked_request("GET", "/open?app=https://ya.ru")
 
