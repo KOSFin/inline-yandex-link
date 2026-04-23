@@ -8,7 +8,7 @@ from html import unescape
 
 from aiohttp import ClientError, ClientSession
 
-from .models import TrackLink, TrackMetadata
+from .models import ArtistLink, ArtistMetadata, TrackLink, TrackMetadata, YandexLink, YandexMetadata
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -25,6 +25,16 @@ JSON_LD_RE = re.compile(
 )
 VISIBLE_WHITESPACE_RE = re.compile(r"\s+")
 TRACK_DURATION_RE = re.compile(r"Длительность дорожки\s+(\d{1,2}:\d{2})", re.IGNORECASE)
+ARTIST_LISTENERS_RE = re.compile(
+    r"(?P<count>[\d\s\xa0]+)\s+слушател(?:ь|я|ей)\s+в\s+месяц",
+    re.IGNORECASE,
+)
+PAGE_HEADING_RE = re.compile(r"<h1[^>]*>(?P<body>.*?)</h1>", re.IGNORECASE | re.DOTALL)
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+PRELOADED_ARTIST_LIKES_RE = re.compile(
+    r'\\"preloadedArtist\\":\{\\"artist\\":\{\\"id\\":\\"(?P<artist_id>\d+)\\".*?\\"likesCount\\":(?P<likes_count>\d+)',
+    re.DOTALL,
+)
 CAPTCHA_MARKERS = (
     "Подтвердите, что запросы отправляли вы, а не робот",
     "Вы не робот?",
@@ -35,7 +45,7 @@ CAPTCHA_MARKERS = (
 
 @dataclass
 class _CacheEntry:
-    metadata: TrackMetadata
+    metadata: YandexMetadata
     expires_at: float
     touched_at: float
 
@@ -54,7 +64,7 @@ class TrackMetadataClient:
         self._cache_size = cache_size
         self._cache: dict[str, _CacheEntry] = {}
 
-    async def fetch(self, link: TrackLink) -> TrackMetadata:
+    async def fetch(self, link: YandexLink) -> YandexMetadata:
         cached = self._cache.get(link.cache_key)
         now = time.monotonic()
         if cached and cached.expires_at > now:
@@ -72,20 +82,20 @@ class TrackMetadataClient:
                 },
             ) as response:
                 if response.status != 200:
-                    metadata = TrackMetadata(title="ТРЕК", error_code=f"http_{response.status}")
+                    metadata = build_error_metadata(link, f"http_{response.status}")
                 else:
                     html = await response.text()
-                    metadata = extract_track_metadata(html, link)
+                    metadata = extract_metadata(html, link)
         except ClientError:
-            metadata = TrackMetadata(title="ТРЕК", error_code="network_error")
+            metadata = build_error_metadata(link, "network_error")
         except TimeoutError:
-            metadata = TrackMetadata(title="ТРЕК", error_code="timeout")
+            metadata = build_error_metadata(link, "timeout")
 
         if metadata.error_code is None:
             self._save_to_cache(link.cache_key, metadata, now)
         return metadata
 
-    def _save_to_cache(self, key: str, metadata: TrackMetadata, now: float) -> None:
+    def _save_to_cache(self, key: str, metadata: YandexMetadata, now: float) -> None:
         self._cache[key] = _CacheEntry(
             metadata=metadata,
             expires_at=now + self._cache_ttl_seconds,
@@ -97,6 +107,18 @@ class TrackMetadataClient:
 
         oldest_key = min(self._cache.items(), key=lambda item: item[1].touched_at)[0]
         self._cache.pop(oldest_key, None)
+
+
+def build_error_metadata(link: YandexLink, error_code: str) -> YandexMetadata:
+    if isinstance(link, ArtistLink):
+        return ArtistMetadata(title="АРТИСТ", error_code=error_code)
+    return TrackMetadata(title="ТРЕК", error_code=error_code)
+
+
+def extract_metadata(html: str, link: YandexLink) -> YandexMetadata:
+    if isinstance(link, ArtistLink):
+        return extract_artist_metadata(html, link)
+    return extract_track_metadata(html, link)
 
 
 def extract_track_metadata(html: str, link: TrackLink) -> TrackMetadata:
@@ -118,6 +140,37 @@ def extract_track_metadata(html: str, link: TrackLink) -> TrackMetadata:
         title=normalize_visible_text(title) or "ТРЕК",
         artist=normalize_visible_text(artist) or None,
         duration=duration or None,
+        error_code=None,
+    )
+
+
+def extract_artist_metadata(html: str, link: ArtistLink) -> ArtistMetadata:
+    if is_captcha_page(html):
+        return ArtistMetadata(title="АРТИСТ", error_code="captcha_required")
+
+    title: str | None = None
+    last_month_listeners: int | None = None
+
+    state_snapshot_metadata = extract_artist_metadata_from_state_snapshot(html, link)
+    if state_snapshot_metadata is not None:
+        title = state_snapshot_metadata.title
+        last_month_listeners = state_snapshot_metadata.last_month_listeners
+
+    if not title:
+        title = extract_artist_name_from_heading(html)
+
+    if last_month_listeners is None:
+        last_month_listeners = extract_artist_last_month_listeners_from_html(html)
+
+    likes_count = extract_artist_likes_count_from_preloaded_artist(html, link)
+
+    if not title and likes_count is None and last_month_listeners is None:
+        return ArtistMetadata(title="АРТИСТ", error_code="meta_missing")
+
+    return ArtistMetadata(
+        title=title or "АРТИСТ",
+        likes_count=likes_count,
+        last_month_listeners=last_month_listeners,
         error_code=None,
     )
 
@@ -158,6 +211,41 @@ def extract_track_metadata_from_state_snapshot(html: str, link: TrackLink) -> Tr
         title=title or "ТРЕК",
         artist=artist or None,
         duration=duration or None,
+        error_code=None,
+    )
+
+
+def extract_artist_metadata_from_state_snapshot(html: str, link: ArtistLink) -> ArtistMetadata | None:
+    state_snapshot = extract_state_snapshot(html)
+    if not isinstance(state_snapshot, dict):
+        return None
+
+    artist_state = state_snapshot.get("artist")
+    if not isinstance(artist_state, dict):
+        return None
+
+    raw_meta = artist_state.get("meta")
+    if not isinstance(raw_meta, dict):
+        return None
+
+    raw_artist = raw_meta.get("artist")
+    if not isinstance(raw_artist, dict):
+        return None
+
+    artist_id = str(raw_artist.get("id") or artist_state.get("id") or "")
+    if artist_id != link.artist_id:
+        return None
+
+    title = normalize_visible_text(raw_artist.get("name"))
+    last_month_listeners = parse_int_value(raw_meta.get("lastMonthListeners"))
+
+    if not title and last_month_listeners is None:
+        return None
+
+    return ArtistMetadata(
+        title=title or "АРТИСТ",
+        likes_count=None,
+        last_month_listeners=last_month_listeners,
         error_code=None,
     )
 
@@ -245,6 +333,32 @@ def parse_tag_attributes(raw_attributes: str) -> dict[str, str]:
     for key, _, double_value, single_value in ATTR_RE.findall(raw_attributes):
         parsed[key.lower()] = double_value or single_value
     return parsed
+
+
+def extract_artist_name_from_heading(html: str) -> str | None:
+    match = PAGE_HEADING_RE.search(html)
+    if not match:
+        return None
+
+    heading = HTML_TAG_RE.sub(" ", match.group("body"))
+    return normalize_visible_text(heading) or None
+
+
+def extract_artist_last_month_listeners_from_html(html: str) -> int | None:
+    match = ARTIST_LISTENERS_RE.search(unescape(html))
+    if not match:
+        return None
+
+    return parse_human_number(match.group("count"))
+
+
+def extract_artist_likes_count_from_preloaded_artist(html: str, link: ArtistLink) -> int | None:
+    for match in PRELOADED_ARTIST_LIKES_RE.finditer(html):
+        if match.group("artist_id") != link.artist_id:
+            continue
+        return parse_human_number(match.group("likes_count"))
+
+    return None
 
 
 def extract_artist(html: str) -> str | None:
@@ -339,6 +453,24 @@ def format_duration_ms(value: object) -> str | None:
     if display_hours:
         return f"{display_hours}:{display_minutes:02d}:{display_seconds:02d}"
     return f"{display_minutes:02d}:{display_seconds:02d}"
+
+
+def parse_int_value(value: object) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_human_number(value: str | None) -> int | None:
+    if not value:
+        return None
+
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        return None
+
+    return int(digits)
 
 
 def normalize_visible_text(value: str | None) -> str:

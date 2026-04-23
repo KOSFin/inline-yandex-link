@@ -16,13 +16,15 @@ from aiogram.types import (
     Message,
 )
 
-from .models import TrackLink, TrackMetadata
-from .yandex_links import LinkParseError, parse_track_link
+from .models import ArtistMetadata, TrackMetadata, YandexLink, YandexMetadata
+from .yandex_links import LinkParseError, parse_yandex_link
 from .yandex_metadata import TrackMetadataClient
 
 INLINE_TRACK_EMOJI = "🐈"
 TRACK_EMOJI = "🎵"
 TRACK_CUSTOM_EMOJI_ID = "5472189253121241024"
+INLINE_ARTIST_EMOJI = "🎤"
+ARTIST_EMOJI = "🎤"
 
 
 def configure_track_custom_emoji(*, emoji_id: str = TRACK_CUSTOM_EMOJI_ID, emoji: str = TRACK_EMOJI) -> None:
@@ -52,7 +54,7 @@ def create_router(
             return
 
         try:
-            link = parse_track_link(source_text)
+            link = parse_yandex_link(source_text)
         except LinkParseError as error:
             await message.answer(build_private_help_message(str(error)))
             return
@@ -68,7 +70,7 @@ def create_router(
     @router.inline_query()
     async def inline_query_handler(inline_query: InlineQuery) -> None:
         try:
-            link = parse_track_link(inline_query.query)
+            link = parse_yandex_link(inline_query.query)
         except LinkParseError as error:
             results = [build_error_result(str(error))]
         else:
@@ -85,14 +87,13 @@ def create_router(
 
 
 def build_track_result(
-    link: TrackLink,
-    metadata: TrackMetadata,
+    link: YandexLink,
+    metadata: YandexMetadata,
     *,
     app_redirect_base_url: str | None = None,
 ) -> InlineQueryResultArticle:
-    title = metadata.title or "ТРЕК"
-    description_parts = [part for part in (metadata.artist, metadata.duration) if part]
-    description = " • ".join(description_parts) or "Преобразовать ссылку Яндекс Музыки"
+    title = metadata.title or default_title(metadata)
+    description = build_result_description(metadata)
 
     return InlineQueryResultArticle(
         id=link.cache_key,
@@ -106,12 +107,13 @@ def build_track_result(
 def build_error_result(error_code: str) -> InlineQueryResultArticle:
     return InlineQueryResultArticle(
         id=f"error:{error_code}",
-        title="Нужна ссылка на трек Яндекс Музыки",
-        description="Поддерживаются web и yandexmusic:// ссылки на трек",
+        title="Нужна ссылка на трек или артиста Яндекс Музыки",
+        description="Поддерживаются web и yandexmusic:// ссылки на трек и артиста",
         input_message_content=InputTextMessageContent(
             message_text=(
-                f"{INLINE_TRACK_EMOJI} <b>ТРЕК</b>\n"
-                "Вставь ссылку вида <code>https://music.yandex.ru/album/123/track/456</code>\n\n"
+                f"{INLINE_TRACK_EMOJI} <b>ЯНДЕКС МУЗЫКА</b>\n"
+                "Вставь ссылку вида <code>https://music.yandex.ru/album/123/track/456</code>\n"
+                "или <code>https://music.yandex.ru/artist/123</code>\n\n"
                 f"<code>{escape_html_text(error_code)}</code>"
             ),
             parse_mode="HTML",
@@ -120,20 +122,24 @@ def build_error_result(error_code: str) -> InlineQueryResultArticle:
     )
 
 
-def render_message(link: TrackLink, metadata: TrackMetadata) -> str:
+def render_message(link: YandexLink, metadata: YandexMetadata) -> str:
     del link
-    return render_track_message(metadata, emoji=TRACK_EMOJI)
+    return render_entity_message(metadata, emoji=emoji_for_private_message(metadata))
 
 
-def render_inline_message(metadata: TrackMetadata) -> str:
-    return render_track_message(metadata, emoji=INLINE_TRACK_EMOJI)
+def render_inline_message(metadata: YandexMetadata) -> str:
+    return render_entity_message(metadata, emoji=emoji_for_inline_message(metadata))
 
 
 def render_track_message(metadata: TrackMetadata, *, emoji: str) -> str:
-    title = metadata.title or "ТРЕК"
+    return render_entity_message(metadata, emoji=emoji)
+
+
+def render_entity_message(metadata: YandexMetadata, *, emoji: str) -> str:
+    title = metadata.title or default_title(metadata)
     lines = [f"{emoji} {title}"]
 
-    meta_parts = [part for part in (metadata.artist, metadata.duration) if part]
+    meta_parts = build_metadata_summary_parts(metadata)
     if meta_parts:
         lines.append(" • ".join(meta_parts))
 
@@ -144,22 +150,23 @@ def render_track_message(metadata: TrackMetadata, *, emoji: str) -> str:
     return "\n".join(lines)
 
 
-def build_inline_track_message_content(metadata: TrackMetadata) -> InputTextMessageContent:
+def build_inline_track_message_content(metadata: YandexMetadata) -> InputTextMessageContent:
+    emoji = emoji_for_inline_message(metadata)
     message_text = render_inline_message(metadata)
     return InputTextMessageContent(
         message_text=message_text,
-        entities=build_track_message_entities(metadata, emoji=INLINE_TRACK_EMOJI),
+        entities=build_track_message_entities(metadata, emoji=emoji),
         disable_web_page_preview=True,
     )
 
 
 def build_track_message_entities(
-    metadata: TrackMetadata,
+    metadata: YandexMetadata,
     *,
     emoji: str,
     custom_emoji_id: str | None = None,
 ) -> list[MessageEntity]:
-    title = metadata.title or "ТРЕК"
+    title = metadata.title or default_title(metadata)
     entities: list[MessageEntity] = []
 
     if custom_emoji_id:
@@ -182,7 +189,7 @@ def build_track_message_entities(
 
     if metadata.error_code:
         prefix = f"{emoji} {title}"
-        meta_parts = [part for part in (metadata.artist, metadata.duration) if part]
+        meta_parts = build_metadata_summary_parts(metadata)
         if meta_parts:
             prefix = f"{prefix}\n{' • '.join(meta_parts)}"
         prefix = f"{prefix}\n\n"
@@ -199,17 +206,19 @@ def build_track_message_entities(
 
 async def send_private_track_message(
     message: Message,
-    link: TrackLink,
-    metadata: TrackMetadata,
+    link: YandexLink,
+    metadata: YandexMetadata,
     *,
     app_redirect_base_url: str | None = None,
 ) -> None:
+    emoji = emoji_for_private_message(metadata)
+    custom_emoji_id = TRACK_CUSTOM_EMOJI_ID if isinstance(metadata, TrackMetadata) else None
     await message.answer(
         render_message(link, metadata),
         entities=build_track_message_entities(
             metadata,
-            emoji=TRACK_EMOJI,
-            custom_emoji_id=TRACK_CUSTOM_EMOJI_ID,
+            emoji=emoji,
+            custom_emoji_id=custom_emoji_id,
         ),
         parse_mode=None,
         disable_web_page_preview=True,
@@ -218,7 +227,7 @@ async def send_private_track_message(
 
 
 def build_track_reply_markup(
-    link: TrackLink,
+    link: YandexLink,
     *,
     app_redirect_base_url: str | None = None,
 ) -> InlineKeyboardMarkup:
@@ -233,7 +242,7 @@ def build_track_reply_markup(
 
 
 def build_app_link_button(
-    link: TrackLink,
+    link: YandexLink,
     *,
     app_redirect_base_url: str | None = None,
 ) -> InlineKeyboardButton:
@@ -247,7 +256,7 @@ def build_app_link_button(
     )
 
 
-def build_redirect_url(link: TrackLink, *, app_redirect_base_url: str | None = None) -> str | None:
+def build_redirect_url(link: YandexLink, *, app_redirect_base_url: str | None = None) -> str | None:
     if not app_redirect_base_url:
         return None
 
@@ -257,27 +266,70 @@ def build_redirect_url(link: TrackLink, *, app_redirect_base_url: str | None = N
 
 def build_start_message() -> str:
     return (
-        "Пришли ссылку на трек Яндекс Музыки сюда или через inline mode.\n\n"
+        "Пришли ссылку на трек или артиста Яндекс Музыки сюда или через inline mode.\n\n"
         "Личка:\n"
-        "<code>https://music.yandex.ru/album/2448178/track/21404459</code>\n\n"
+        "<code>https://music.yandex.ru/album/2448178/track/21404459</code>\n"
+        "<code>https://music.yandex.ru/artist/23558757</code>\n\n"
         "Inline:\n"
-        "<code>@имя_бота https://music.yandex.ru/album/2448178/track/21404459</code>"
+        "<code>@имя_бота https://music.yandex.ru/album/2448178/track/21404459</code>\n"
+        "<code>@имя_бота https://music.yandex.ru/artist/23558757</code>"
     )
 
 
 def build_private_help_message(error_code: str | None = None) -> str:
     lines = [
-        "Пришли ссылку на трек Яндекс Музыки одним сообщением.",
+        "Пришли ссылку на трек или артиста Яндекс Музыки одним сообщением.",
         "",
         "Поддерживаются:",
         "<code>https://music.yandex.ru/album/123/track/456</code>",
         "<code>yandexmusic://album/123/track/456</code>",
+        "<code>https://music.yandex.ru/artist/123</code>",
+        "<code>yandexmusic://artist/123</code>",
     ]
 
     if error_code:
         lines.extend(("", f"<code>{escape_html_text(error_code)}</code>"))
 
     return "\n".join(lines)
+
+
+def default_title(metadata: YandexMetadata) -> str:
+    if isinstance(metadata, ArtistMetadata):
+        return "АРТИСТ"
+    return "ТРЕК"
+
+
+def build_result_description(metadata: YandexMetadata) -> str:
+    parts = build_metadata_summary_parts(metadata)
+    return " • ".join(parts) or "Преобразовать ссылку Яндекс Музыки"
+
+
+def build_metadata_summary_parts(metadata: YandexMetadata) -> list[str]:
+    if isinstance(metadata, TrackMetadata):
+        return [part for part in (metadata.artist, metadata.duration) if part]
+
+    parts: list[str] = []
+    if metadata.likes_count is not None:
+        parts.append(f"Лайки: {format_count(metadata.likes_count)}")
+    if metadata.last_month_listeners is not None:
+        parts.append(f"Слушатели/мес: {format_count(metadata.last_month_listeners)}")
+    return parts
+
+
+def emoji_for_inline_message(metadata: YandexMetadata) -> str:
+    if isinstance(metadata, ArtistMetadata):
+        return INLINE_ARTIST_EMOJI
+    return INLINE_TRACK_EMOJI
+
+
+def emoji_for_private_message(metadata: YandexMetadata) -> str:
+    if isinstance(metadata, ArtistMetadata):
+        return ARTIST_EMOJI
+    return TRACK_EMOJI
+
+
+def format_count(value: int) -> str:
+    return f"{value:,}".replace(",", " ")
 
 
 def escape_html_text(value: str) -> str:

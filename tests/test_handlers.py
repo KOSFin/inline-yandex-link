@@ -1,7 +1,9 @@
 import unittest
 
 from bot.handlers import (
+    ARTIST_EMOJI,
     INLINE_TRACK_EMOJI,
+    INLINE_ARTIST_EMOJI,
     TRACK_CUSTOM_EMOJI_ID,
     TRACK_EMOJI,
     build_private_help_message,
@@ -12,7 +14,7 @@ from bot.handlers import (
     render_inline_message,
     render_message,
 )
-from bot.models import TrackLink, TrackMetadata
+from bot.models import ArtistLink, ArtistMetadata, TrackLink, TrackMetadata
 
 
 class HandlerTests(unittest.TestCase):
@@ -53,6 +55,27 @@ class HandlerTests(unittest.TestCase):
             link.app_url,
         )
 
+    def test_build_track_result_supports_artist(self) -> None:
+        link = ArtistLink(
+            artist_id="23558757",
+            web_url="https://music.yandex.ru/artist/23558757",
+            app_url="yandexmusic://artist/23558757",
+        )
+        metadata = ArtistMetadata(title="Skyvault", likes_count=22292, last_month_listeners=1277692)
+
+        result = build_track_result(link, metadata)
+
+        self.assertEqual(result.title, "Skyvault")
+        self.assertEqual(
+            result.description,
+            "Лайки: 22 292 • Слушатели/мес: 1 277 692",
+        )
+        self.assertEqual(
+            result.input_message_content.message_text,
+            f"{INLINE_ARTIST_EMOJI} Skyvault\nЛайки: 22 292 • Слушатели/мес: 1 277 692",
+        )
+        self.assertEqual(result.reply_markup.inline_keyboard[0][0].url, link.web_url)
+
     def test_render_message_keeps_track_text_clean(self) -> None:
         link = TrackLink(
             album_id="5717491",
@@ -72,6 +95,21 @@ class HandlerTests(unittest.TestCase):
         message = render_inline_message(metadata)
 
         self.assertEqual(message, f"{INLINE_TRACK_EMOJI} Miss Me\nBerner • 04:32")
+
+    def test_render_message_supports_artist(self) -> None:
+        link = ArtistLink(
+            artist_id="23558757",
+            web_url="https://music.yandex.ru/artist/23558757",
+            app_url="yandexmusic://artist/23558757",
+        )
+        metadata = ArtistMetadata(title="Skyvault", likes_count=22292, last_month_listeners=1277692)
+
+        message = render_message(link, metadata)
+
+        self.assertEqual(
+            message,
+            f"{ARTIST_EMOJI} Skyvault\nЛайки: 22 292 • Слушатели/мес: 1 277 692",
+        )
 
     def test_render_message_does_not_escape_apostrophe_into_numeric_entity(self) -> None:
         link = TrackLink(
@@ -105,12 +143,15 @@ class HandlerTests(unittest.TestCase):
 
         self.assertIn("Личка", message)
         self.assertIn("Inline", message)
+        self.assertIn("https://music.yandex.ru/artist/23558757", message)
 
     def test_build_private_help_message_contains_supported_link_examples(self) -> None:
         message = build_private_help_message("unsupported_link")
 
         self.assertIn("https://music.yandex.ru/album/123/track/456", message)
         self.assertIn("yandexmusic://album/123/track/456", message)
+        self.assertIn("https://music.yandex.ru/artist/123", message)
+        self.assertIn("yandexmusic://artist/123", message)
         self.assertIn("unsupported_link", message)
 
     def test_build_redirect_url(self) -> None:

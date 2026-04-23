@@ -1,7 +1,7 @@
 import unittest
 
-from bot.models import TrackLink
-from bot.yandex_metadata import extract_track_metadata, parse_iso_duration
+from bot.models import ArtistLink, TrackLink
+from bot.yandex_metadata import extract_artist_metadata, extract_track_metadata, parse_iso_duration
 
 SAMPLE_HTML = """
 <!DOCTYPE html>
@@ -63,6 +63,35 @@ CAPTCHA_HTML = """
 </html>
 """
 
+ARTIST_HTML = """
+<!DOCTYPE html>
+<html lang="ru-RU">
+  <head></head>
+  <body>
+    <script>
+      (window.__STATE_SNAPSHOT__ = window.__STATE_SNAPSHOT__ || []).push({
+        "artist": {
+          "id": "23558757",
+          "meta": {
+            "artist": {
+              "id": "23558757",
+              "name": "Skyvault",
+              "pendingLikesCount": 0
+            },
+            "lastMonthListeners": 1277692
+          }
+        }
+      });
+    </script>
+    <script>
+      self.__next_f.push([1,"2f:[\\"$\\",\\"$L6a\\",null,{\\"page\\":\\"artist\\",\\"children\\":[\\"$\\",\\"$L6b\\",null,{\\"artistId\\":\\"23558757\\",\\"preloadedArtist\\":{\\"artist\\":{\\"id\\":\\"23558757\\",\\"name\\":\\"Skyvault\\",\\"likesCount\\":22292}}}]}]"])
+    </script>
+    <h1><span>Skyvault</span></h1>
+    <span>1&nbsp;277&nbsp;692 слушателя в месяц</span>
+  </body>
+</html>
+"""
+
 
 class TrackMetadataTests(unittest.TestCase):
     def test_extract_track_metadata(self) -> None:
@@ -120,6 +149,20 @@ class TrackMetadataTests(unittest.TestCase):
 
         self.assertEqual(metadata.title, "ТРЕК")
         self.assertEqual(metadata.error_code, "captcha_required")
+
+    def test_extract_artist_metadata(self) -> None:
+        link = ArtistLink(
+            artist_id="23558757",
+            web_url="https://music.yandex.ru/artist/23558757",
+            app_url="yandexmusic://artist/23558757",
+        )
+
+        metadata = extract_artist_metadata(ARTIST_HTML, link)
+
+        self.assertEqual(metadata.title, "Skyvault")
+        self.assertEqual(metadata.likes_count, 22292)
+        self.assertEqual(metadata.last_month_listeners, 1277692)
+        self.assertIsNone(metadata.error_code)
 
     def test_parse_iso_duration(self) -> None:
         self.assertEqual(parse_iso_duration("PT6M34S"), "06:34")
